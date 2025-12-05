@@ -1,6 +1,7 @@
 # app.py
 import os
 import logging
+import sys
 
 from flask import Flask, request, jsonify
 import requests
@@ -22,36 +23,41 @@ def home():
     return "Instagram Flask Webhook is running ✅", 200
 
 
-# 1) این endpoint برای Webhook Verification استفاده میشه
-@app.route("/webhook", methods=["GET"])
-def verify_webhook():
-    """
-    وقتی تو Facebook Developer → Webhook رو ست می‌کنی،
-    IG این GET رو می‌فرسته و باید hub.challenge رو برگردونی.
-    """
-    mode = request.args.get("hub.mode")
-    token = request.args.get("hub.verify_token")
-    challenge = request.args.get("hub.challenge")
+# یک روت واحد برای GET (verification) و POST (eventها)
+@app.route("/webhook", methods=["GET", "POST"])
+def webhook():
+    # ---------- 1) Webhook Verification (GET) ----------
+    if request.method == "GET":
+        mode = request.args.get("hub.mode")
+        token = request.args.get("hub.verify_token")
+        challenge = request.args.get("hub.challenge")
 
-    app.logger.info(f"Verification request: mode={mode}, token={token}")
+        app.logger.info(f"[WEBHOOK GET] mode={mode}, token={token}")
+        print(f"[WEBHOOK GET] mode={mode}, token={token}")
+        sys.stdout.flush()
 
-    if mode == "subscribe" and token == VERIFY_TOKEN:
-        # توکن صحیح است → hub.challenge را برگردان
-        return challenge, 200
-    else:
-        return "Verification token mismatch", 403
+        if mode == "subscribe" and token == VERIFY_TOKEN:
+            # توکن صحیح است → hub.challenge را برگردان
+            return challenge, 200
+        else:
+            return "Verification token mismatch", 403
 
+    # ---------- 2) دریافت Event ها (POST) ----------
+    # برای اینکه مطمئن بشیم هر POST لاگ میشه:
+    raw_body = request.data.decode("utf-8", errors="ignore")
+    headers = dict(request.headers)
 
-# 2) این endpoint برای دریافت Eventها (کامنت، پیام و...) است
-@app.route("/webhook", methods=["POST"])
-def receive_webhook():
-    """
-    IG هر رویداد جدید (کامنت، پیام،...) رو به اینجا POST می‌کنه.
-    فعلاً فقط لاگ می‌گیریم و بعد می‌تونی شرط بذاری:
-      - اگر کاربر فلان چیز کامنت کرد → DM بفرست
-    """
-    data = request.get_json()
-    app.logger.info(f"Incoming webhook data: {data}")
+    app.logger.info("=== IG WEBHOOK POST RECEIVED ===")
+    app.logger.info(f"Headers: {headers}")
+    app.logger.info(f"Raw body: {raw_body}")
+    print("=== IG WEBHOOK POST RECEIVED ===")
+    print("Headers:", headers)
+    print("Raw body:", raw_body)
+    sys.stdout.flush()
+
+    # اگر JSON درست فرستاده شده باشه:
+    data = request.get_json(silent=True)
+    app.logger.info(f"Parsed JSON: {data}")
 
     # ساختار کلی webhook اینستاگرام
     # {
@@ -94,6 +100,8 @@ def handle_comment_event(value: dict):
     در اینجا می‌تونی متن کامنت، اسم کاربر و... رو بخونی.
     """
     app.logger.info(f"Handling comment event: {value}")
+    print(f"Handling comment event: {value}")
+    sys.stdout.flush()
 
     # مثال ساختار value تقریبی:
     # {
@@ -107,13 +115,12 @@ def handle_comment_event(value: dict):
     user_id = from_user.get("id")
 
     app.logger.info(f"Comment text: {comment_text}, from user: {user_id}")
+    print(f"Comment text: {comment_text}, from user: {user_id}")
+    sys.stdout.flush()
 
     if not user_id:
         return
 
-    # اینجا می‌تونی شرط بذاری:
-    # اگر کاربر "1" کامنت کرد → سرنخ خواننده
-    # اگر "2" → ژانر، و غیره
     comment_text_stripped = comment_text.strip()
 
     if comment_text_stripped == "1":
@@ -131,33 +138,31 @@ def handle_comment_event(value: dict):
 def send_dm(user_ig_id: str, message: str):
     """
     این تابع باید با Instagram Graph API یک پیام DM برای کاربر بفرستد.
-    برای این کار باید Messaging API رو برای IG فعال کرده باشی
-    و endpoint درست را از مستندات Meta استفاده کنی.
-
-    اینجا یک اسکلت کلی گذاشتم. قبل از استفاده واقعی، حتماً
-    مستندات Instagram Messaging API را دقیق چک کن.
     """
     app.logger.info(f"Trying to send DM to {user_ig_id}: {message}")
+    print(f"Trying to send DM to {user_ig_id}: {message}")
+    sys.stdout.flush()
 
     if IG_ACCESS_TOKEN.startswith("CHANGE_ME"):
         app.logger.warning("IG_ACCESS_TOKEN not set properly, skipping actual DM send.")
         return
 
-    # مثال کلی (الزاماً همین نیست، بسته به نوع endpoint)
+    # مثال کلی (قبل از استفاده واقعی، مستندات رسمی رو چک کن):
     # endpoint = f"{GRAPH_API_BASE}/{IG_BUSINESS_ID}/messages"
     # payload = {
-    #     "recipient": { "id": user_ig_id },
-    #     "message": { "text": message }
+    #     "recipient": {"id": user_ig_id},
+    #     "message": {"text": message}
     # }
     # params = {
     #     "access_token": IG_ACCESS_TOKEN
     # }
-    #
     # res = requests.post(endpoint, json=payload, params=params)
     # app.logger.info(f"DM send response: {res.status_code} - {res.text}")
 
-    # فعلاً برای جلوگیری از خطا، فقط لاگ می‌کنیم:
+    # فعلاً فقط ماک:
     app.logger.info(f"Mock send DM: to={user_ig_id}, message={message}")
+    print(f"Mock send DM: to={user_ig_id}, message={message}")
+    sys.stdout.flush()
 
 
 if __name__ == "__main__":
